@@ -2,6 +2,7 @@
 {
     public class GroupReservationDTO
     {
+        public int BookingID { get; set; }
         public DateTime FlightDate { get; set; }
         public string CarrierCode { get; set; }
         public string FlightNo { get; set; }

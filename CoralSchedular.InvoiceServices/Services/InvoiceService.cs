@@ -42,7 +42,7 @@ namespace CoralSchedular.InvoiceServices.Services
 
             //iterate for each file, read each invoice pdf file one by one
             //Add invoice record lists to Dictionary using each file's name as KEY
-            foreach (var file in invoiceList)   
+            foreach (var file in invoiceList)
             {
                 string fileName = Path.GetFileName(file);
 

@@ -90,30 +90,6 @@ namespace CoralSchedular.InvoiceServices.Utils
             }
         }
 
-
-        private List<InvoicePdfModelDTO> GetGroupOfRecords(List<InvoicePdfModelDTO> InvoicePdfModelDTOs)
-        {
-            //This method provides a unique invoice for each flight
-
-            //Business Rule: "As you notice, there is no unique ID in each line, but each row is given as aggregated for each flight."
-            //Some data violated the aggregated for each flight in PDF file;
-            //2324 5 12.01.2024 XQ 130 AYT MUC 2 116,00 232,00
-            //2324 5 12.01.2024 XQ 130 AYT MUC 1 126,00 126,00
-
-            return InvoicePdfModelDTOs
-                .GroupBy(x => new { x.InvoiceNumber, x.FlightDate, x.CarrierCode, x.FlightNo })
-                .Select(x =>
-                        new InvoicePdfModelDTO
-                        {
-                            InvoiceNumber = x.Key.InvoiceNumber,
-                            FlightDate = x.Key.FlightDate,
-                            CarrierCode = x.Key.CarrierCode,
-                            FlightNo = x.Key.FlightNo,
-                            TotalPrice = x.Sum(item => item.TotalPrice)
-                        })
-                .ToList();
-        }
-
         public List<InvoicePdfModelDTO> Parse(string text)
         {
             if(text.IsNullOrEmpty())
@@ -155,17 +131,12 @@ namespace CoralSchedular.InvoiceServices.Utils
                             InvoicePdfModelDTOs.Add(item);
                     }
                 }
-
-                //This method groups the invoice record list by FlightDate, CarrierCode, FlightNo and InvoiceNumber. Sum Price value for similar records.
-                InvoicePdfModelDTOs = GetGroupOfRecords(InvoicePdfModelDTOs);
             }
             catch (Exception e)
             {
                 //ToDO Log
                 throw new Exception("Invoice Parse Exception! " + e.Message);
             }
-
-            
 
             return InvoicePdfModelDTOs;
         }

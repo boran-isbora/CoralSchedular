@@ -22,10 +22,11 @@ namespace CoralSchedular.InvoiceServices.Schedular
                 throw new Exception("No Data Found on Reservation Table");
 
             return reservations
-                    .GroupBy(x => new { x.FlightDate, x.CarrierCode, x.FlightNo, x.InvoiceNumber })
+                    .GroupBy(x => new { x.BookingID, x.FlightDate, x.CarrierCode, x.FlightNo, x.InvoiceNumber })
                     .Select(x =>
                         new GroupReservationDTO
                         {
+                            BookingID = x.Key.BookingID,
                             FlightDate = x.Key.FlightDate,
                             CarrierCode = x.Key.CarrierCode,
                             FlightNo = x.Key.FlightNo,
@@ -118,58 +119,98 @@ namespace CoralSchedular.InvoiceServices.Schedular
                 //read data from database
                 var reservations = await _invoiceService.GetReservationsAsync();
 
-                //This method groups the reservation list by FlightDate, CarrierCode, FlightNo and InvoiceNumber. Sum Price value for similar records.
+                //This method groups the reservation list by BookingID, FlightDate, CarrierCode, FlightNo and InvoiceNumber. Sum Price value for similar records.
                 var groupReservationDTOs = GetGroupOfReservations(reservations);
 
                 //read data from pdf file
                 var parsedRecordFromPDFDictionary = _invoiceService.ParseFlightInvoice();
 
-                foreach (var item in parsedRecordFromPDFDictionary )
+
+                foreach (var item in parsedRecordFromPDFDictionary)     //Loop for each Incoice PDF file
                 {
                     var successfulRecords = new List<InvoicePdfModelDTO>();
                     var unmatchedRecords = new List<InvoicePdfModelDTO>();
                     var duplicateInvoice = new List<InvoicePdfModelDTO>();
                     var differentPrice = new List<InvoicePdfModelDTO>();
-                    
-                    foreach (var record in item.Value)
+
+                    foreach (var pdfRecord in item.Value)               //Loop through each invoice record in an Invoice PDF file
                     {
                         var foundedReservation = groupReservationDTOs
-                            .Where(x => x.FlightDate == record.FlightDate && x.CarrierCode == record.CarrierCode && x.FlightNo == record.FlightNo)
+                            .Where(x => x.FlightDate == pdfRecord.FlightDate && x.CarrierCode == pdfRecord.CarrierCode && x.FlightNo == pdfRecord.FlightNo)
                             .ToList();
 
-                        if (foundedReservation.Count == 0)
+                        var pdfRecordFound = false;
+
+
+                        //Don't change the order of foreach loops!!!
+                        //Since TotalPrice and InvoiceNumber should not be included in the above grouping.
+                        //So more than one record may be returned.
+                        //In cases where more than one record is returned, whether any of them match should be checked in the following order.
+
+
+                        foreach (var foundedItem in foundedReservation)  //Loop for grouped list of records found in database
                         {
-                            unmatchedRecords.Add(record);
-                            continue;
+                            //Check Successful Records
+                            if (pdfRecord.FlightDate == foundedItem.FlightDate &&
+                                pdfRecord.CarrierCode == foundedItem.CarrierCode &&
+                                pdfRecord.FlightNo == foundedItem.FlightNo &&
+                                Decimal.Compare(pdfRecord.TotalPrice, foundedItem.TotalPrice) == 0 &&
+                                (foundedItem.InvoiceNumber == null || pdfRecord.InvoiceNumber == foundedItem.InvoiceNumber))
+                            {
+                                successfulRecords.Add(pdfRecord);
+                                pdfRecordFound = true;
+                                break;
+                            }
                         }
 
-                        //If there is more than one record, its means this flight has been invoiced more than once or a part of the flight reservation has been invoiced.
-                        if (foundedReservation.Count > 1)
-                        {
-                            duplicateInvoice.Add(record);
+                        if (pdfRecordFound == true)
                             continue;
+
+
+                        foreach (var foundedItem in foundedReservation)  //Loop for grouped list of records found in database
+                        {
+                            //Check Duplicate Invoice
+                            if (pdfRecord.FlightDate == foundedItem.FlightDate &&
+                                pdfRecord.CarrierCode == foundedItem.CarrierCode &&
+                                pdfRecord.FlightNo == foundedItem.FlightNo &&
+                                Decimal.Compare(pdfRecord.TotalPrice, foundedItem.TotalPrice) == 0 &&
+                                (foundedItem.InvoiceNumber != null && pdfRecord.InvoiceNumber != foundedItem.InvoiceNumber))
+                            {
+                                duplicateInvoice.Add(pdfRecord);
+                                pdfRecordFound = true;
+                                break;
+                            }
                         }
 
-                        //Count == 0 and Count > 1 already checked so list size is 1 for the following cases.
-
-                        //If it is registered with a different invoice number
-                        if (foundedReservation[0].InvoiceNumber != null && foundedReservation[0].InvoiceNumber != record.InvoiceNumber)
-                        {
-                            duplicateInvoice.Add(record);
+                        if (pdfRecordFound == true)
                             continue;
+
+                        foreach (var foundedItem in foundedReservation)  //Loop for grouped list of records found in database
+                        {
+                            //Check Different Price
+                            if (pdfRecord.FlightDate == foundedItem.FlightDate &&
+                                pdfRecord.CarrierCode == foundedItem.CarrierCode &&
+                                pdfRecord.FlightNo == foundedItem.FlightNo &&
+                                Decimal.Compare(pdfRecord.TotalPrice, foundedItem.TotalPrice) != 0 &&
+                                (foundedItem.InvoiceNumber == null || pdfRecord.InvoiceNumber == foundedItem.InvoiceNumber))
+                            {
+                                differentPrice.Add(pdfRecord);
+                                pdfRecordFound = true;
+                                break;
+                            }
                         }
 
-                        if (foundedReservation[0].TotalPrice != record.TotalPrice)
-                        {
-                            differentPrice.Add(record);
+                        if (pdfRecordFound == true)
                             continue;
-                        }
 
-                        successfulRecords.Add(record);
+                        //else case
+                        if (pdfRecordFound == false)
+                            unmatchedRecords.Add(pdfRecord);
                     }
+                    
 
                     //Update Invoice Number
-                    if(successfulRecords.Count > 0)
+                    if (successfulRecords.Count > 0)
                         await _invoiceService.BulkInvoiceUpdateAsync(successfulRecords);
 
                     var invoiceName = item.Key;
